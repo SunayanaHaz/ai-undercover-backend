@@ -1,0 +1,7 @@
+timestamp,difficulty,scenarioId,correct,score,reasoning
+"2025-11-29T03:43:18.402Z","intermediate","2","false","0","I choose this answer because "
+"2025-11-29T04:06:52.641Z","intermediate","1","false","0","Yes , Some of this felt very close to real AI chats I’ve had."
+"2025-11-29T04:07:28.337Z","expert","","false","0","Some of this felt very close to real AI chats I’ve had."
+"2025-11-29T04:07:37.583Z","expert","1","false","0","Some of this felt very close to real AI chats I’ve had."
+"2025-11-29T04:08:06.788Z","expert","2","false","0","The explanations helped me see what was manipulative vs. just persuasive."
+"2025-11-29T05:15:44.671Z","expert","","false","0","I want a browser extension that highlights these automatically"
