@@ -1,20 +1,16 @@
-// index.js (Node backend)
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;  // ✅ FIXED
 
-// Allow requests from your React dev server (http://localhost:3000)
 app.use(cors());
 app.use(express.json());
 
-// Path to the CSV file
 const csvPath = path.join(__dirname, 'comments.csv');
 
-// Ensure CSV file has a header row
 if (!fs.existsSync(csvPath)) {
   fs.writeFileSync(
     csvPath,
@@ -26,13 +22,12 @@ if (!fs.existsSync(csvPath)) {
 app.post('/comments', (req, res) => {
   const { difficulty, scenarioId, correct, score, reasoning } = req.body || {};
 
-  // Basic validation
   if (!reasoning || reasoning.trim().length === 0) {
     return res.status(400).json({ message: 'Reasoning is required' });
   }
 
-  const timestamp = new Date().toISOString().replace(/,/g, ''); // no commas in timestamp
-  const safeReasoning = reasoning.replace(/"/g, '""'); // escape quotes for CSV
+  const timestamp = new Date().toISOString().replace(/,/g, '');
+  const safeReasoning = reasoning.replace(/"/g, '""');
 
   const row = `"${timestamp}","${difficulty || ''}","${scenarioId || ''}","${correct}","${score || 0}","${safeReasoning}"\n`;
 
@@ -46,5 +41,5 @@ app.post('/comments', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Comment server listening on http://localhost:${PORT}`);
+  console.log(`Comment server listening on port ${PORT}`);  // ✅ FIXED
 });
