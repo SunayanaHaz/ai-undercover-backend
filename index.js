@@ -1,70 +1,93 @@
 // index.js (Node backend)
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+const express = require("express");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
-
-// ✅ IMPORTANT for Render: use its PORT if given, or 5000 locally
 const PORT = process.env.PORT || 5000;
 
+// Allow all origins (Netlify frontend calls Render backend)
 app.use(cors());
 app.use(express.json());
 
-// Path to the CSV file where we store comments
-const csvPath = path.join(__dirname, 'comments.csv');
+// CSV output file
+const csvPath = path.join(__dirname, "comments.csv");
 
-// If CSV file doesn't exist yet, create it with a header row
+// Ensure CSV header row exists
 if (!fs.existsSync(csvPath)) {
   fs.writeFileSync(
     csvPath,
-    'timestamp,difficulty,scenarioId,correct,score,reasoning\n',
-    'utf8'
+    [
+      "timestamp",
+      "difficulty",
+      "scenarioId",
+      "correct",
+      "score",
+      "timeTakenSeconds",
+      "selectedTacticId",
+      "correctTacticId",
+      "reasoning"
+    ].join(",") + "\n",
+    "utf8"
   );
 }
 
-// 👉 This is called when the game SENDS a comment (POST /comments)
-app.post('/comments', (req, res) => {
-  const { difficulty, scenarioId, correct, score, reasoning } = req.body || {};
+// Receive data from game
+app.post("/comments", (req, res) => {
+  const {
+    difficulty,
+    scenarioId,
+    correct,
+    score,
+    reasoning,
+    selectedTacticId,
+    correctTacticId,
+    timeTakenSeconds
+  } = req.body || {};
 
-  // Basic validation: we at least require some reasoning text
   if (!reasoning || reasoning.trim().length === 0) {
-    return res.status(400).json({ message: 'Reasoning is required' });
+    return res.status(400).json({ message: "Reasoning is required" });
   }
 
-  const timestamp = new Date().toISOString().replace(/,/g, ''); // no commas in timestamp
-  const safeReasoning = reasoning.replace(/"/g, '""'); // escape quotes for CSV
+  const timestamp = new Date().toISOString();
+  const safeReasoning = `"${reasoning.replace(/"/g, '""')}"`;
 
-  const row = `"${timestamp}","${difficulty || ''}","${scenarioId || ''}","${correct}","${score || 0}","${safeReasoning}"\n`;
+  const row = [
+    timestamp,
+    difficulty || "",
+    scenarioId || "",
+    correct,
+    score || 0,
+    timeTakenSeconds || 0,
+    selectedTacticId || "",
+    correctTacticId || "",
+    safeReasoning
+  ].join(",") + "\n";
 
   fs.appendFile(csvPath, row, (err) => {
     if (err) {
-      console.error('Error writing to CSV:', err);
-      return res.status(500).json({ message: 'Failed to save comment' });
+      console.error("Error writing CSV:", err);
+      return res.status(500).json({ message: "Failed to save comment" });
     }
-    return res.status(201).json({ message: 'Comment saved' });
+    return res.status(201).json({ message: "Comment saved" });
   });
 });
 
-// 👉 NEW: This is called when *you* want to DOWNLOAD all comments (GET /download-comments)
-app.get('/download-comments', (req, res) => {
+// Download CSV as a file
+app.get("/download-comments", (req, res) => {
   if (!fs.existsSync(csvPath)) {
-    return res.status(404).send('No comments file found yet.');
+    return res.status(404).send("No comments yet.");
   }
 
-  // Send the CSV file to the browser as a download
-  res.download(csvPath, 'comments.csv', (err) => {
-    if (err) {
-      console.error('Error sending CSV file:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Failed to download comments');
-      }
+  res.download(csvPath, "comments.csv", (err) => {
+    if (err && !res.headersSent) {
+      res.status(500).send("Failed to download comments");
     }
   });
 });
 
-// Start the server
+// Start server
 app.listen(PORT, () => {
-  console.log(`Comment server listening on port ${PORT}`);
+  console.log(`Comment server running on port ${PORT}`);
 });
