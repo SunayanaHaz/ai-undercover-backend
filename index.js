@@ -1,16 +1,15 @@
-// index.js (Node backend using Supabase instead of CSV)
+// index.js – Backend using Supabase, with /download-comments working
 
 const express = require("express");
 const cors = require("cors");
+const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
-const { createClient } = require("@supabase/supabase-js");
+// ---------- SETUP SUPABASE CLIENT ----------
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-// Create Supabase client (backend only – secure keys)
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,10 +17,15 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Loud logging so we can debug
+// Extra logs so we see what’s happening
 console.log("🚀 Backend starting...");
-console.log("🔗 Using Supabase URL:", process.env.SUPABASE_URL);
-console.log("🔐 Service key loaded?", !!process.env.SUPABASE_SERVICE_KEY);
+console.log("🔗 SUPABASE_URL:", supabaseUrl);
+console.log("🔐 Service key loaded?", !!supabaseServiceKey);
+
+// ---------- ROOT ROUTE (just for sanity check) ----------
+app.get("/", (req, res) => {
+  res.send("👍 AI Undercover backend is running");
+});
 
 // ---------- HEALTH CHECK ----------
 app.get("/health", (req, res) => {
@@ -30,30 +34,30 @@ app.get("/health", (req, res) => {
 
 // ---------- SAVE ONE GAME ROUND ----------
 app.post("/comments", async (req, res) => {
-  console.log("📥 Received /comments POST:", req.body);
+  console.log("📥 POST /comments body:", req.body);
 
   try {
+    // Insert exactly what the game sends into the "comments" table
     const { data, error } = await supabase
       .from("comments")
-      .insert([req.body]); // insert row exactly as sent
+      .insert([req.body]);
 
     if (error) {
-      console.error("❌ Supabase Insert Error:", error);
+      console.error("❌ Supabase insert error:", error);
       return res.status(500).json({ message: "Failed to save comment" });
     }
 
-    console.log("✅ Saved to Supabase:", data);
+    console.log("✅ Saved row in Supabase:", data);
     return res.status(201).json({ message: "Comment saved" });
-
   } catch (err) {
-    console.error("❌ Unexpected Error:", err);
+    console.error("❌ Unexpected error in /comments:", err);
     return res.status(500).json({ message: "Unexpected server error" });
   }
 });
 
 // ---------- DOWNLOAD ALL DATA AS CSV ----------
 app.get("/download-comments", async (req, res) => {
-  console.log("📤 /download-comments requested");
+  console.log("📤 GET /download-comments called");
 
   try {
     const { data, error } = await supabase
@@ -61,16 +65,18 @@ app.get("/download-comments", async (req, res) => {
       .select("*");
 
     if (error) {
-      console.error("❌ Supabase Select Error:", error);
+      console.error("❌ Supabase select error:", error);
       return res.status(500).send("Error fetching comments");
     }
 
     if (!data || data.length === 0) {
-      console.log("⚠️ No data in Supabase yet");
-      return res.status(404).send("No comments found");
+      console.log("⚠️ No comments in database");
+      return res
+        .status(404)
+        .send("No comments yet. Play the game first to generate data.");
     }
 
-    // --- Convert JSON → CSV ---
+    // Turn rows into CSV
     const escapeValue = (value) => {
       if (value === null || value === undefined) return "";
       const str = String(value);
@@ -80,14 +86,13 @@ app.get("/download-comments", async (req, res) => {
       return str;
     };
 
-    const header = Object.keys(data[0]);
+    const header = Object.keys(data[0]); // column names
     const rows = data.map((row) =>
       header.map((col) => escapeValue(row[col])).join(",")
     );
 
     const csv = [header.join(","), ...rows].join("\n");
 
-    // Send the CSV
     res.setHeader("Content-Type", "text/csv");
     res.setHeader(
       "Content-Disposition",
@@ -95,10 +100,9 @@ app.get("/download-comments", async (req, res) => {
     );
     res.status(200).send(csv);
 
-    console.log("✅ CSV download sent");
-
+    console.log("✅ CSV sent to client");
   } catch (err) {
-    console.error("❌ CSV Generation Error:", err);
+    console.error("❌ Error in /download-comments:", err);
     res.status(500).send("Failed to generate CSV");
   }
 });

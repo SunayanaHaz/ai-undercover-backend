@@ -8,9 +8,9 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.48.0",
+    "@supabase/supabase-js": "^2.86.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.0",
-    "express": "^4.19.2"
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1"
   }
 }
