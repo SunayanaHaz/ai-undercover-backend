@@ -1,8 +1,16 @@
-// index.js (Node backend - loud logging so we can debug)
+// index.js (Node backend using Supabase instead of CSV)
+
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
+require("dotenv").config();
+
+const { createClient } = require("@supabase/supabase-js");
+
+// Create Supabase client (backend only – secure keys)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -10,149 +18,92 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Path to CSV file
-const csvPath = path.join(__dirname, "comments.csv");
+// Loud logging so we can debug
+console.log("🚀 Backend starting...");
+console.log("🔗 Using Supabase URL:", process.env.SUPABASE_URL);
+console.log("🔐 Service key loaded?", !!process.env.SUPABASE_SERVICE_KEY);
 
-// Log where we are saving the file
-console.log("📁 CSV will be saved at:", csvPath);
-
-// Make any value safe for CSV
-function csvSafe(value) {
-  if (value === undefined || value === null) return '""';
-  const str = String(value).replace(/"/g, '""');
-  return `"${str}"`;
-}
-
-// Ensure header exists
-if (!fs.existsSync(csvPath)) {
-  console.log("🧾 CSV file not found. Creating new one with header...");
-  const header =
-    [
-      "timestamp",
-      "participantId",
-      "difficulty",
-      "scenarioId",
-      "scenarioContext",
-      "scenarioMessage",
-      "aiType",
-      "selectedTacticId",
-      "selectedTacticName",
-      "correctTacticId",
-      "correctTacticName",
-      "correct",
-      "baseScore",
-      "timeBonus",
-      "reasoningBonus",
-      "streakBonus",
-      "totalScore",
-      "timeTakenSeconds",
-      "confidence",
-      "reasoning"
-    ].join(",") + "\n";
-
-  fs.writeFileSync(csvPath, header, "utf8");
-  console.log("✅ CSV header created");
-} else {
-  console.log("✅ CSV file already exists");
-}
-
-// Simple health check to test server is up
+// ---------- HEALTH CHECK ----------
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Receive one round from the game
-app.post("/comments", (req, res) => {
-  // Log that we got a request
-  console.log("📥 Got /comments request with body:", {
-    participantId: req.body?.participantId,
-    difficulty: req.body?.difficulty,
-    scenarioId: req.body?.scenarioId,
-    totalScore: req.body?.totalScore,
-  });
+// ---------- SAVE ONE GAME ROUND ----------
+app.post("/comments", async (req, res) => {
+  console.log("📥 Received /comments POST:", req.body);
 
-  const {
-    participantId,
-    difficulty,
-    scenarioId,
-    scenarioContext,
-    scenarioMessage,
-    aiType,
-    selectedTacticId,
-    selectedTacticName,
-    correctTacticId,
-    correctTacticName,
-    correct,
-    baseScore,
-    timeBonus,
-    reasoningBonus,
-    streakBonus,
-    totalScore,
-    timeTakenSeconds,
-    confidence,
-    reasoning
-  } = req.body || {};
+  try {
+    const { data, error } = await supabase
+      .from("comments")
+      .insert([req.body]); // insert row exactly as sent
 
-  const timestamp = new Date().toISOString();
-
-  const row =
-    [
-      timestamp,
-      csvSafe(participantId),
-      csvSafe(difficulty),
-      csvSafe(scenarioId),
-      csvSafe(scenarioContext),
-      csvSafe(scenarioMessage),
-      csvSafe(aiType),
-      csvSafe(selectedTacticId),
-      csvSafe(selectedTacticName),
-      csvSafe(correctTacticId),
-      csvSafe(correctTacticName),
-      correct,
-      baseScore ?? 0,
-      timeBonus ?? 0,
-      reasoningBonus ?? 0,
-      streakBonus ?? 0,
-      totalScore ?? 0,
-      timeTakenSeconds ?? 0,
-      confidence ?? "",
-      csvSafe(reasoning ?? "")
-    ].join(",") + "\n";
-
-  // Try to add one line to the CSV
-  fs.appendFile(csvPath, row, (err) => {
-    if (err) {
-      console.error("❌ Error writing CSV:", err);
+    if (error) {
+      console.error("❌ Supabase Insert Error:", error);
       return res.status(500).json({ message: "Failed to save comment" });
     }
-    console.log("✅ Saved one CSV row for:", {
-      participantId,
-      scenarioId,
-      difficulty,
-      totalScore,
-    });
+
+    console.log("✅ Saved to Supabase:", data);
     return res.status(201).json({ message: "Comment saved" });
-  });
-});
 
-// Download CSV for analysis
-app.get("/download-comments", (req, res) => {
-  console.log("📤 /download-comments requested");
-  if (!fs.existsSync(csvPath)) {
-    console.log("⚠️ No CSV file yet");
-    return res.status(404).send("No comments yet.");
+  } catch (err) {
+    console.error("❌ Unexpected Error:", err);
+    return res.status(500).json({ message: "Unexpected server error" });
   }
-
-  res.download(csvPath, "comments.csv", (err) => {
-    if (err && !res.headersSent) {
-      console.error("❌ Error sending CSV:", err);
-      res.status(500).send("Failed to download comments");
-    } else if (!err) {
-      console.log("✅ CSV download sent");
-    }
-  });
 });
 
+// ---------- DOWNLOAD ALL DATA AS CSV ----------
+app.get("/download-comments", async (req, res) => {
+  console.log("📤 /download-comments requested");
+
+  try {
+    const { data, error } = await supabase
+      .from("comments")
+      .select("*");
+
+    if (error) {
+      console.error("❌ Supabase Select Error:", error);
+      return res.status(500).send("Error fetching comments");
+    }
+
+    if (!data || data.length === 0) {
+      console.log("⚠️ No data in Supabase yet");
+      return res.status(404).send("No comments found");
+    }
+
+    // --- Convert JSON → CSV ---
+    const escapeValue = (value) => {
+      if (value === null || value === undefined) return "";
+      const str = String(value);
+      if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const header = Object.keys(data[0]);
+    const rows = data.map((row) =>
+      header.map((col) => escapeValue(row[col])).join(",")
+    );
+
+    const csv = [header.join(","), ...rows].join("\n");
+
+    // Send the CSV
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=comments.csv"
+    );
+    res.status(200).send(csv);
+
+    console.log("✅ CSV download sent");
+
+  } catch (err) {
+    console.error("❌ CSV Generation Error:", err);
+    res.status(500).send("Failed to generate CSV");
+  }
+});
+
+// ---------- START SERVER ----------
 app.listen(PORT, () => {
-  console.log(`🟢 Comment server running on port ${PORT}`);
+  console.log(`🟢 Supabase-backed server running on port ${PORT}`);
 });
