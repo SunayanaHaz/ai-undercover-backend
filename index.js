@@ -1,4 +1,4 @@
-// index.js (Node backend - research grade CSV logging)
+// index.js (Node backend - research-grade logging with confidence + streakBonus)
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -10,17 +10,17 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// CSV file on disk
+// Path to CSV file
 const csvPath = path.join(__dirname, "comments.csv");
 
-// Helper to make text safe for CSV (" -> "")
+// Make any value safe for CSV
 function csvSafe(value) {
   if (value === undefined || value === null) return '""';
   const str = String(value).replace(/"/g, '""');
   return `"${str}"`;
 }
 
-// Ensure CSV header exists
+// Ensure header exists (and has ALL the columns your frontend sends)
 if (!fs.existsSync(csvPath)) {
   const header =
     [
@@ -39,15 +39,17 @@ if (!fs.existsSync(csvPath)) {
       "baseScore",
       "timeBonus",
       "reasoningBonus",
+      "streakBonus",
       "totalScore",
       "timeTakenSeconds",
+      "confidence",
       "reasoning"
     ].join(",") + "\n";
 
   fs.writeFileSync(csvPath, header, "utf8");
 }
 
-// Receive data from the game
+// Receive one round from the game
 app.post("/comments", (req, res) => {
   const {
     participantId,
@@ -64,14 +66,12 @@ app.post("/comments", (req, res) => {
     baseScore,
     timeBonus,
     reasoningBonus,
+    streakBonus,
     totalScore,
     timeTakenSeconds,
+    confidence,
     reasoning
   } = req.body || {};
-
-  if (!reasoning || reasoning.trim().length === 0) {
-    return res.status(400).json({ message: "Reasoning is required" });
-  }
 
   const timestamp = new Date().toISOString();
 
@@ -92,9 +92,11 @@ app.post("/comments", (req, res) => {
       baseScore ?? 0,
       timeBonus ?? 0,
       reasoningBonus ?? 0,
+      streakBonus ?? 0,
       totalScore ?? 0,
       timeTakenSeconds ?? 0,
-      csvSafe(reasoning)
+      confidence ?? "",
+      csvSafe(reasoning ?? "")
     ].join(",") + "\n";
 
   fs.appendFile(csvPath, row, (err) => {
@@ -106,7 +108,7 @@ app.post("/comments", (req, res) => {
   });
 });
 
-// Download CSV
+// Download CSV for analysis
 app.get("/download-comments", (req, res) => {
   if (!fs.existsSync(csvPath)) {
     return res.status(404).send("No comments yet.");
