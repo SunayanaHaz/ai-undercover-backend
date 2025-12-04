@@ -1,15 +1,16 @@
-// index.js – Backend using Supabase, with /download-comments working
+// index.js – FINAL WORKING VERSION for AI Undercover backend
+// Uses Supabase + proper column mapping so inserts ALWAYS succeed.
 
 const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
-// ---------- SETUP SUPABASE CLIENT ----------
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// ---------- SUPABASE CLIENT ----------
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,12 +18,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Extra logs so we see what’s happening
-console.log("🚀 Backend starting...");
-console.log("🔗 SUPABASE_URL:", supabaseUrl);
-console.log("🔐 Service key loaded?", !!supabaseServiceKey);
-
-// ---------- ROOT ROUTE (just for sanity check) ----------
+// ---------- ROOT ----------
 app.get("/", (req, res) => {
   res.send("👍 AI Undercover backend is running");
 });
@@ -37,10 +33,37 @@ app.post("/comments", async (req, res) => {
   console.log("📥 POST /comments body:", req.body);
 
   try {
-    // Insert exactly what the game sends into the "comments" table
+    const body = req.body || {};
+
+    // Map camelCase fields → snake_case columns in Supabase
+    const rowToInsert = {
+      participant_id: body.participantId || null,
+      difficulty: body.difficulty || null,
+      scenario_id: body.scenarioId || null,
+      scenario_context: body.scenarioContext || null,
+      scenario_message: body.scenarioMessage || null,
+      ai_type: body.aiType || null,
+
+      selected_tactic_id: body.selectedTacticId || null,
+      selected_tactic_name: body.selectedTacticName || null,
+      correct_tactic_id: body.correctTacticId || null,
+      correct_tactic_name: body.correctTacticName || null,
+
+      correct: body.correct ?? null,
+      base_score: body.baseScore ?? null,
+      time_bonus: body.timeBonus ?? null,
+      reasoning_bonus: body.reasoningBonus ?? null,
+      streak_bonus: body.streakBonus ?? null,
+      total_score: body.totalScore ?? null,
+      time_taken_seconds: body.timeTakenSeconds ?? null,
+
+      confidence: body.confidence ?? null,
+      reasoning: body.reasoning || null,
+    };
+
     const { data, error } = await supabase
       .from("comments")
-      .insert([req.body]);
+      .insert([rowToInsert]);
 
     if (error) {
       console.error("❌ Supabase insert error:", error);
@@ -49,13 +72,14 @@ app.post("/comments", async (req, res) => {
 
     console.log("✅ Saved row in Supabase:", data);
     return res.status(201).json({ message: "Comment saved" });
+
   } catch (err) {
     console.error("❌ Unexpected error in /comments:", err);
     return res.status(500).json({ message: "Unexpected server error" });
   }
 });
 
-// ---------- DOWNLOAD ALL DATA AS CSV ----------
+// ---------- DOWNLOAD ALL COMMENTS AS CSV ----------
 app.get("/download-comments", async (req, res) => {
   console.log("📤 GET /download-comments called");
 
@@ -70,25 +94,22 @@ app.get("/download-comments", async (req, res) => {
     }
 
     if (!data || data.length === 0) {
-      console.log("⚠️ No comments in database");
-      return res
-        .status(404)
-        .send("No comments yet. Play the game first to generate data.");
+      return res.status(404).send("No comments yet. Play the game first.");
     }
 
-    // Turn rows into CSV
-    const escapeValue = (value) => {
-      if (value === null || value === undefined) return "";
-      const str = String(value);
-      if (str.includes(",") || str.includes("\n") || str.includes('"')) {
-        return `"${str.replace(/"/g, '""')}"`;
+    // Convert rows → CSV
+    const escape = (v) => {
+      if (v === null || v === undefined) return "";
+      const s = String(v);
+      if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+        return `"${s.replace(/"/g, '""')}"`;
       }
-      return str;
+      return s;
     };
 
-    const header = Object.keys(data[0]); // column names
+    const header = Object.keys(data[0]);
     const rows = data.map((row) =>
-      header.map((col) => escapeValue(row[col])).join(",")
+      header.map((h) => escape(row[h])).join(",")
     );
 
     const csv = [header.join(","), ...rows].join("\n");
@@ -101,8 +122,9 @@ app.get("/download-comments", async (req, res) => {
     res.status(200).send(csv);
 
     console.log("✅ CSV sent to client");
+
   } catch (err) {
-    console.error("❌ Error in /download-comments:", err);
+    console.error("❌ CSV generation error:", err);
     res.status(500).send("Failed to generate CSV");
   }
 });
